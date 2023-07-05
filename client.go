@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,6 +30,12 @@ var (
 func ClientMaxBufferSize(s int) func(c *Client) {
 	return func(c *Client) {
 		c.maxBufferSize = s
+	}
+}
+
+func ClientUsePathStreams(enabled bool) func(c *Client) {
+	return func(c *Client) {
+		c.usePath = enabled
 	}
 }
 
@@ -52,6 +59,7 @@ type Client struct {
 	URL               string
 	LastEventID       atomic.Value // []byte
 	maxBufferSize     int
+	usePath           bool
 	mu                sync.Mutex
 	EncodingBase64    bool
 	Connected         bool
@@ -297,9 +305,16 @@ func (c *Client) request(ctx context.Context, stream string) (*http.Response, er
 
 	// Setup request, specify stream to connect to
 	if stream != "" {
-		query := req.URL.Query()
-		query.Add("stream", stream)
-		req.URL.RawQuery = query.Encode()
+		if c.usePath {
+			req.URL.Path, err = url.JoinPath(req.URL.Path, stream)
+			if err != nil {
+				return nil, fmt.Errorf("could not build stream url: %w", err)
+			}
+		} else {
+			query := req.URL.Query()
+			query.Add("stream", stream)
+			req.URL.RawQuery = query.Encode()
+		}
 	}
 
 	req.Header.Set("Cache-Control", "no-cache")
